@@ -6,9 +6,11 @@ using Content.Shared.Construction.Prototypes;
 using Content.Shared.Examine;
 using Content.Shared.Input;
 using Content.Shared.Wall;
+using Content.Shared.CCVar;
 using JetBrains.Annotations;
 using Robust.Client.GameObjects;
 using Robust.Client.Player;
+using Robust.Shared.Configuration;
 using Robust.Shared.Input;
 using Robust.Shared.Input.Binding;
 using Robust.Shared.Map;
@@ -29,6 +31,7 @@ namespace Content.Client.Construction
         [Dependency] private readonly SharedTransformSystem _transformSystem = default!;
         [Dependency] private readonly SpriteSystem _sprite = default!;
         [Dependency] private readonly PopupSystem _popupSystem = default!;
+        [Dependency] private readonly IConfigurationManager _configurationManager = default!;
 
         private readonly Dictionary<int, EntityUid> _ghosts = new();
         private readonly Dictionary<string, ConstructionGuide> _guideCache = new();
@@ -80,7 +83,7 @@ namespace Content.Client.Construction
         {
             foreach (var constructionProto in PrototypeManager.EnumeratePrototypes<ConstructionPrototype>())
             {
-                if (!PrototypeManager.Resolve(constructionProto.Graph, out var graphProto))
+                if (!PrototypeManager.TryIndex(constructionProto.Graph, out var graphProto))
                     continue;
 
                 if (constructionProto.TargetNode is not { } targetNodeId)
@@ -121,14 +124,17 @@ namespace Content.Client.Construction
                     // If we got the id of the prototype, we exit the “recursion” by clearing the stack.
                     stack.Clear();
 
-                    if (!PrototypeManager.Resolve(entityId, out var proto))
+                    if (!PrototypeManager.TryIndex(constructionProto.ID, out ConstructionPrototype? recipe))
                         continue;
 
-                    var name = constructionProto.SetName.HasValue ? Loc.GetString(constructionProto.SetName) : proto.Name;
-                    var desc = constructionProto.SetDescription.HasValue ? Loc.GetString(constructionProto.SetDescription) : proto.Description;
+                    if (!PrototypeManager.TryIndex(entityId, out var proto))
+                        continue;
 
-                    constructionProto.Name = name;
-                    constructionProto.Description = desc;
+                    var name = recipe.SetName.HasValue ? Loc.GetString(recipe.SetName) : proto.Name;
+                    var desc = recipe.SetDescription.HasValue ? Loc.GetString(recipe.SetDescription) : proto.Description;
+
+                    recipe.Name = name;
+                    recipe.Description = desc;
 
                     _recipesMetadataCache.Add(constructionProto.ID, entityId);
                 } while (stack.Count > 0);
@@ -169,7 +175,7 @@ namespace Content.Client.Construction
                     "construction-ghost-examine-message",
                     ("name", component.Prototype.Name)));
 
-                if (!PrototypeManager.Resolve(component.Prototype.Graph, out var graph))
+                if (!PrototypeManager.TryIndex(component.Prototype.Graph, out var graph))
                     return;
 
                 var startNode = graph.Nodes[component.Prototype.StartNode];
@@ -273,7 +279,7 @@ namespace Content.Client.Construction
             if (!TryGetRecipePrototype(prototype.ID, out var targetProtoId) || !PrototypeManager.TryIndex(targetProtoId, out EntityPrototype? targetProto))
                 return false;
 
-            if (GhostPresent(loc))
+            if (HasReachedMaximumGhosts(loc))
                 return false;
 
             var predicate = GetPredicate(prototype.CanBuildInImpassable, _transformSystem.ToMapCoordinates(loc));
@@ -283,14 +289,14 @@ namespace Content.Client.Construction
             if (!CheckConstructionConditions(prototype, loc, dir, user, showPopup: true))
                 return false;
 
-            ghost = Spawn("constructionghost", loc);
-            var comp = Comp<ConstructionGhostComponent>(ghost.Value);
+            ghost = EntityManager.SpawnEntity("constructionghost", loc);
+            var comp = EntityManager.GetComponent<ConstructionGhostComponent>(ghost.Value);
             comp.Prototype = prototype;
             comp.GhostId = ghost.GetHashCode();
-            Comp<TransformComponent>(ghost.Value).LocalRotation = dir.ToAngle();
+            EntityManager.GetComponent<TransformComponent>(ghost.Value).LocalRotation = dir.ToAngle();
             _ghosts.Add(comp.GhostId, ghost.Value);
 
-            var sprite = Comp<SpriteComponent>(ghost.Value);
+            var sprite = EntityManager.GetComponent<SpriteComponent>(ghost.Value);
             _sprite.SetColor((ghost.Value, sprite), new Color(48, 255, 48, 128));
 
             if (targetProto.TryGetComponent(out IconComponent? icon, EntityManager.ComponentFactory))
@@ -303,7 +309,7 @@ namespace Content.Client.Construction
             else if (targetProto.Components.TryGetValue("Sprite", out _))
             {
                 var dummy = EntityManager.SpawnEntity(targetProtoId, MapCoordinates.Nullspace);
-                var targetSprite = EnsureComp<SpriteComponent>(dummy);
+                var targetSprite = EntityManager.EnsureComponent<SpriteComponent>(dummy);
                 EntityManager.System<AppearanceSystem>().OnChangeData(dummy, targetSprite);
 
                 for (var i = 0; i < targetSprite.AllLayers.Count(); i++)
@@ -322,7 +328,7 @@ namespace Content.Client.Construction
                     _sprite.LayerSetVisible((ghost.Value, sprite), i, true);
                 }
 
-                Del(dummy);
+                EntityManager.DeleteEntity(dummy);
             }
             else
                 return false;
@@ -358,17 +364,15 @@ namespace Content.Client.Construction
         }
 
         /// <summary>
-        /// Checks if any construction ghosts are present at the given position
+        /// Checks if the maximum number of construction ghosts has been reached at the given location.
         /// </summary>
-        private bool GhostPresent(EntityCoordinates loc)
+        private bool HasReachedMaximumGhosts(EntityCoordinates loc)
         {
-            foreach (var ghost in _ghosts)
-            {
-                if (Comp<TransformComponent>(ghost.Value).Coordinates.Equals(loc))
-                    return true;
-            }
+            // Count ghosts at the given location and allow up to the maximum allowed per tile
+            var ghostCount = _ghosts.Values.Count(ghost =>
+                EntityManager.GetComponent<TransformComponent>(ghost).Coordinates.Equals(loc));
 
-            return false;
+            return ghostCount >= _configurationManager.GetCVar(CCVars.ConstructionMaxGhostsPerTile);
         }
 
         public void TryStartConstruction(EntityUid ghostId, ConstructionGhostComponent? ghostComp = null)
@@ -381,7 +385,7 @@ namespace Content.Client.Construction
                 throw new ArgumentException($"Can't start construction for a ghost with no prototype. Ghost id: {ghostId}");
             }
 
-            var transform = Comp<TransformComponent>(ghostId);
+            var transform = EntityManager.GetComponent<TransformComponent>(ghostId);
             var msg = new TryStartStructureConstructionMessage(GetNetCoordinates(transform.Coordinates), ghostComp.Prototype.ID, transform.LocalRotation, ghostId.GetHashCode());
             RaiseNetworkEvent(msg);
         }
@@ -402,7 +406,7 @@ namespace Content.Client.Construction
             if (!_ghosts.TryGetValue(ghostId, out var ghost))
                 return;
 
-            QueueDel(ghost);
+            EntityManager.QueueDeleteEntity(ghost);
             _ghosts.Remove(ghostId);
         }
 
@@ -413,7 +417,7 @@ namespace Content.Client.Construction
         {
             foreach (var ghost in _ghosts.Values)
             {
-                QueueDel(ghost);
+                EntityManager.QueueDeleteEntity(ghost);
             }
 
             _ghosts.Clear();
