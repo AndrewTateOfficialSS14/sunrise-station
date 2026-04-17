@@ -34,7 +34,9 @@ namespace Content.Client.Construction
         [Dependency] private readonly ExamineSystemShared _examineSystem = default!;
         [Dependency] private readonly SharedTransformSystem _transformSystem = default!;
         [Dependency] private readonly SpriteSystem _sprite = default!;
+
         [Dependency] private readonly PopupSystem _popupSystem = default!;
+
         // Starlight-edit start
         [Dependency] private readonly IConfigurationManager _configurationManager = default!;
         // Starlight-edit end
@@ -71,7 +73,9 @@ namespace Content.Client.Construction
             SubscribeLocalEvent<ConstructionGhostComponent, ComponentShutdown>(HandleGhostComponentShutdown);
         }
 
-        private void HandleGhostComponentShutdown(EntityUid uid, ConstructionGhostComponent component, ComponentShutdown args)
+        private void HandleGhostComponentShutdown(EntityUid uid,
+            ConstructionGhostComponent component,
+            ComponentShutdown args)
         {
             ClearGhost(component.GhostId);
         }
@@ -137,7 +141,9 @@ namespace Content.Client.Construction
                         continue;
 
                     var name = recipe.SetName.HasValue ? Loc.GetString(recipe.SetName) : proto.Name;
-                    var desc = recipe.SetDescription.HasValue ? Loc.GetString(recipe.SetDescription) : proto.Description;
+                    var desc = recipe.SetDescription.HasValue
+                        ? Loc.GetString(recipe.SetDescription)
+                        : proto.Description;
 
                     recipe.Name = name;
                     recipe.Description = desc;
@@ -170,7 +176,9 @@ namespace Content.Client.Construction
             return null;
         }
 
-        private void HandleConstructionGhostExamined(EntityUid uid, ConstructionGhostComponent component, ExaminedEvent args)
+        private void HandleConstructionGhostExamined(EntityUid uid,
+            ConstructionGhostComponent component,
+            ExaminedEvent args)
         {
             if (component.Prototype?.Name is null)
                 return;
@@ -282,7 +290,8 @@ namespace Content.Client.Construction
                 return false;
             }
 
-            if (!TryGetRecipePrototype(prototype.ID, out var targetProtoId) || !PrototypeManager.TryIndex(targetProtoId, out EntityPrototype? targetProto))
+            if (!TryGetRecipePrototype(prototype.ID, out var targetProtoId) ||
+                !PrototypeManager.TryIndex(targetProtoId, out EntityPrototype? targetProto))
                 return false;
 
             // Starlight-edit start
@@ -331,7 +340,9 @@ namespace Content.Client.Construction
                         continue;
 
                     _sprite.AddBlankLayer((ghost.Value, sprite), i);
-                    _sprite.LayerSetSprite((ghost.Value, sprite), i, new SpriteSpecifier.Rsi(rsi.Path, state.StateId.Name));
+                    _sprite.LayerSetSprite((ghost.Value, sprite),
+                        i,
+                        new SpriteSpecifier.Rsi(rsi.Path, state.StateId.Name));
                     sprite.LayerSetShader(i, "unshaded");
                     _sprite.LayerSetVisible((ghost.Value, sprite), i, true);
                 }
@@ -347,8 +358,11 @@ namespace Content.Client.Construction
             return true;
         }
 
-        private bool CheckConstructionConditions(ConstructionPrototype prototype, EntityCoordinates loc, Direction dir,
-            EntityUid user, bool showPopup = false)
+        private bool CheckConstructionConditions(ConstructionPrototype prototype,
+            EntityCoordinates loc,
+            Direction dir,
+            EntityUid user,
+            bool showPopup = false)
         {
             foreach (var condition in prototype.Conditions)
             {
@@ -406,11 +420,15 @@ namespace Content.Client.Construction
 
             if (ghostComp.Prototype == null)
             {
-                throw new ArgumentException($"Can't start construction for a ghost with no prototype. Ghost id: {ghostId}");
+                throw new ArgumentException(
+                    $"Can't start construction for a ghost with no prototype. Ghost id: {ghostId}");
             }
 
             var transform = EntityManager.GetComponent<TransformComponent>(ghostId);
-            var msg = new TryStartStructureConstructionMessage(GetNetCoordinates(transform.Coordinates), ghostComp.Prototype.ID, transform.LocalRotation, ghostId.GetHashCode());
+            var msg = new TryStartStructureConstructionMessage(GetNetCoordinates(transform.Coordinates),
+                ghostComp.Prototype.ID,
+                transform.LocalRotation,
+                ghostId.GetHashCode());
             RaiseNetworkEvent(msg);
         }
 
