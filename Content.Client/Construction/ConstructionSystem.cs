@@ -22,6 +22,238 @@ using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 
+using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using Content.Client.Popups;
+using Content.Shared.Construction;
+using Content.Shared.Construction.Prototypes;
+using Content.Shared.Examine;
+using Content.Shared.Input;
+using Content.Shared.Wall;
+// Starlight start
+using Content.Shared.Starlight.CCVar;
+// Starlight end
+using JetBrains.Annotations;
+using Robust.Client.GameObjects;
+using Robust.Client.Player;
+// Starlight start
+using Robust.Shared.Configuration;
+// Starlight end
+using Robust.Shared.Input;
+using Robust.Shared.Input.Binding;
+using Robust.Shared.Map;
+        [Dependency] private readonly SharedTransformSystem _transformSystem = default!;
+        [Dependency] private readonly SpriteSystem _sprite = default!;
+        [Dependency] private readonly PopupSystem _popupSystem = default!;
+        // Starlight-edit start
+        [Dependency] private readonly IConfigurationManager _configurationManager = default!;
+        // Starlight-edit end
+
+        private readonly Dictionary<int, EntityUid> _ghosts = new();
+        private readonly Dictionary<string, ConstructionGuide> _guideCache = new();
+            if (!TryGetRecipePrototype(prototype.ID, out var targetProtoId) || !PrototypeManager.TryIndex(targetProtoId, out EntityPrototype? targetProto))
+                return false;
+
+            if (GhostPresent(loc))
+            // Starlight-edit start
+            if (HasReachedMaximumGhosts(loc))
+                return false;
+            // Starlight-edit end
+
+            var predicate = GetPredicate(prototype.CanBuildInImpassable, _transformSystem.ToMapCoordinates(loc));
+            if (!_examineSystem.InRangeUnOccluded(user, loc, 20f, predicate: predicate))
+            return false;
+        }
+
+        // Starlight start
+        /// <summary>
+        /// Checks if the maximum number of construction ghosts has been reached at the given location.
+        /// </summary>
+        private bool HasReachedMaximumGhosts(EntityCoordinates loc)
+        {
+            // Count ghosts at the given location and allow up to the maximum allowed per tile
+            var ghostCount = _ghosts.Values.Count(ghost =>
+                EntityManager.GetComponent<TransformComponent>(ghost).Coordinates.Equals(loc));
+
+            return ghostCount >= _configurationManager.GetCVar(StarlightCCVars.ConstructionMaxGhostsPerTile);
+        }
+        // Starlight end
+
+        public void TryStartConstruction(EntityUid ghostId, ConstructionGhostComponent? ghostComp = null)
+        {
+            if (!Resolve(ghostId, ref ghostComp))
+                return;
+
+            if (ghostComp.Prototype == null)
+            {
+                throw new ArgumentException($"Can't start construction for a ghost with no prototype. Ghost id: {ghostId}");
+            }
+
+            var transform = EntityManager.GetComponent<TransformComponent>(ghostId);
+            var msg = new TryStartStructureConstructionMessage(GetNetCoordinates(transform.Coordinates), ghostComp.Prototype.ID, transform.LocalRotation, ghostId.GetHashCode());
+            RaiseNetworkEvent(msg);
+        }
+
+        /// <summary>
+        /// Starts constructing an item underneath the attached entity.
+        /// </summary>
+        public void TryStartItemConstruction(string prototypeName)
+        {
+            RaiseNetworkEvent(new TryStartItemConstructionMessage(prototypeName));
+        }
+
+        /// <summary>
+        /// Removes a construction ghost entity with the given ID.
+        /// </summary>
+        public void ClearGhost(int ghostId)
+        {
+            if (!_ghosts.TryGetValue(ghostId, out var ghost))
+                return;
+
+            EntityManager.QueueDeleteEntity(ghost);
+            _ghosts.Remove(ghostId);
+        }
+
+        /// <summary>
+        /// Removes all construction ghosts.
+        /// </summary>
+        public void ClearAllGhosts()
+        {
+            foreach (var ghost in _ghosts.Values)
+            {
+                EntityManager.QueueDeleteEntity(ghost);
+            }
+
+            _ghosts.Clear();
+        }
+    }
+
+    public sealed class CraftingAvailabilityChangedArgs : EventArgs
+    {
+        public bool Available { get; }
+
+        public CraftingAvailabilityChangedArgs(bool available)
+        {
+            Available = available;
+        }
+    }
+}
+using System.Linq;
+using Content.Client.Popups;
+using Content.Shared.Construction;
+using Content.Shared.Construction.Prototypes;
+using Content.Shared.Examine;
+using Content.Shared.Input;
+using Content.Shared.Wall;
+// Starlight start
+using Content.Shared.Starlight.CCVar;
+// Starlight end
+using JetBrains.Annotations;
+using Robust.Client.GameObjects;
+using Robust.Client.Player;
+// Starlight start
+using Robust.Shared.Configuration;
+// Starlight end
+using Robust.Shared.Input;
+using Robust.Shared.Input.Binding;
+using Robust.Shared.Map;
+        [Dependency] private readonly SharedTransformSystem _transformSystem = default!;
+        [Dependency] private readonly SpriteSystem _sprite = default!;
+        [Dependency] private readonly PopupSystem _popupSystem = default!;
+        // Starlight-edit start
+        [Dependency] private readonly IConfigurationManager _configurationManager = default!;
+        // Starlight-edit end
+
+        private readonly Dictionary<int, EntityUid> _ghosts = new();
+        private readonly Dictionary<string, ConstructionGuide> _guideCache = new();
+            if (!TryGetRecipePrototype(prototype.ID, out var targetProtoId) || !PrototypeManager.TryIndex(targetProtoId, out EntityPrototype? targetProto))
+                return false;
+
+            if (GhostPresent(loc))
+            // Starlight-edit start
+            if (HasReachedMaximumGhosts(loc))
+                return false;
+            // Starlight-edit end
+
+            var predicate = GetPredicate(prototype.CanBuildInImpassable, _transformSystem.ToMapCoordinates(loc));
+            if (!_examineSystem.InRangeUnOccluded(user, loc, 20f, predicate: predicate))
+            return false;
+        }
+
+        // Starlight start
+        /// <summary>
+        /// Checks if the maximum number of construction ghosts has been reached at the given location.
+        /// </summary>
+        private bool HasReachedMaximumGhosts(EntityCoordinates loc)
+        {
+            // Count ghosts at the given location and allow up to the maximum allowed per tile
+            var ghostCount = _ghosts.Values.Count(ghost =>
+                EntityManager.GetComponent<TransformComponent>(ghost).Coordinates.Equals(loc));
+
+            return ghostCount >= _configurationManager.GetCVar(StarlightCCVars.ConstructionMaxGhostsPerTile);
+        }
+        // Starlight end
+
+        public void TryStartConstruction(EntityUid ghostId, ConstructionGhostComponent? ghostComp = null)
+        {
+            if (!Resolve(ghostId, ref ghostComp))
+                return;
+
+            if (ghostComp.Prototype == null)
+            {
+                throw new ArgumentException($"Can't start construction for a ghost with no prototype. Ghost id: {ghostId}");
+            }
+
+            var transform = EntityManager.GetComponent<TransformComponent>(ghostId);
+            var msg = new TryStartStructureConstructionMessage(GetNetCoordinates(transform.Coordinates), ghostComp.Prototype.ID, transform.LocalRotation, ghostId.GetHashCode());
+            RaiseNetworkEvent(msg);
+        }
+
+        /// <summary>
+        /// Starts constructing an item underneath the attached entity.
+        /// </summary>
+        public void TryStartItemConstruction(string prototypeName)
+        {
+            RaiseNetworkEvent(new TryStartItemConstructionMessage(prototypeName));
+        }
+
+        /// <summary>
+        /// Removes a construction ghost entity with the given ID.
+        /// </summary>
+        public void ClearGhost(int ghostId)
+        {
+            if (!_ghosts.TryGetValue(ghostId, out var ghost))
+                return;
+
+            EntityManager.QueueDeleteEntity(ghost);
+            _ghosts.Remove(ghostId);
+        }
+
+        /// <summary>
+        /// Removes all construction ghosts.
+        /// </summary>
+        public void ClearAllGhosts()
+        {
+            foreach (var ghost in _ghosts.Values)
+            {
+                EntityManager.QueueDeleteEntity(ghost);
+            }
+
+            _ghosts.Clear();
+        }
+    }
+
+    public sealed class CraftingAvailabilityChangedArgs : EventArgs
+    {
+        public bool Available { get; }
+
+        public CraftingAvailabilityChangedArgs(bool available)
+        {
+            Available = available;
+        }
+    }
+}
 namespace Content.Client.Construction
 {
     /// <summary>
